@@ -104,23 +104,30 @@ No external downloads, no random seeds — output is byte-identical across platf
 
 ### Regenerating the screenshot stills and scroll GIFs (macOS)
 
-The screenshots in `examples/screenshots/` are captured by driving Terminal.app via AppleScript, recording the window with `screencapture -V`, and converting the MOV to a palette-optimized GIF with `ffmpeg`. Still PNGs are then extracted from a mid-scroll frame of each GIF so `mat` can render them inline without squashing a tall animation into a single line height:
+The screenshots in `examples/screenshots/` are captured by driving Terminal.app via AppleScript, recording the window with `screencapture -V`, and converting the MOV to a palette-optimized GIF with `ffmpeg`. Still PNGs are then extracted from a mid-scroll frame of each GIF so `mat` can render them inline without squashing a tall animation into a single line height. Both outputs are then compressed for the README — PNGs are scaled to 720 px wide with the alpha channel flattened, GIFs are re-quantized with a 3% fuzz threshold:
 
 ```bash
 # Record a single demo as a scrolling GIF
 examples/screenshots/record.sh examples/showcase.md examples/screenshots/showcase.gif
 
-# Record all six, then extract a representative mid-scroll PNG from each
+# Record all six, extract a representative mid-scroll PNG, then optimize both
 for f in showcase typography code tables images links; do
   examples/screenshots/record.sh "examples/$f.md" "examples/screenshots/$f.gif"
   dur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "examples/screenshots/$f.gif")
   mid=$(awk "BEGIN { printf \"%.2f\", $dur * 0.40 }")
   ffmpeg -y -v error -ss "$mid" -i "examples/screenshots/$f.gif" \
     -frames:v 1 -vf "scale=720:-1:flags=lanczos" "examples/screenshots/$f.png"
+  # Web-optimize the still (1800w RGBA → 720w RGB, ~10x smaller)
+  magick "examples/screenshots/$f.png" -resize 720x \
+    -background '#1d1f21' -alpha remove -alpha off -strip \
+    -define png:compression-level=9 "examples/screenshots/$f.png"
+  # Web-optimize the GIF (fuzzy re-quantize + transparency optimize, ~3-4x smaller)
+  magick "examples/screenshots/$f.gif" -coalesce -fuzz 3% \
+    -layers OptimizeTransparency -layers Optimize "examples/screenshots/$f.gif"
 done
 ```
 
-Requirements: macOS, `ffmpeg` (`brew install ffmpeg`), and Screen-Recording permission granted to the shell that runs the script. Terminal.app must be allowed to accept AppleScript-driven keystrokes (Privacy → Accessibility). The recorder tunes width, window height, scroll speed, and output FPS via environment variables — see the header comment in `record.sh` for the full list.
+Requirements: macOS, `ffmpeg` (`brew install ffmpeg`), `imagemagick` (`brew install imagemagick`), and Screen-Recording permission granted to the shell that runs the script. Terminal.app must be allowed to accept AppleScript-driven keystrokes (Privacy → Accessibility). The recorder tunes width, window height, scroll speed, and output FPS via environment variables — see the header comment in `record.sh` for the full list.
 
 ### Rendering in a graphics-capable terminal
 
