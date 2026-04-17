@@ -55,8 +55,6 @@ mat --help                     # show full help
 
 Every image below is a real macOS Terminal.app capture. `mat` renders each one inline via whichever image protocol your terminal supports (Kitty / iTerm2 / Sixel / half-block fallback) at full terminal width, preserving its natural aspect so text inside the screenshot stays readable. Set `MAT_IMAGE_MAX_HEIGHT_SCALE=1.0` if you want images capped to a single viewport-height of scroll; the default `2.5` lets landscape captures render at their native aspect without compressing the content inside them.
 
-Scroll-through GIFs of every demo are also committed alongside the stills at `examples/screenshots/*.gif` for GitHub-rendered previews.
-
 ### `mat examples/showcase.md` — one-page tour
 
 ![showcase: every feature on one page](examples/screenshots/showcase.png)
@@ -102,28 +100,25 @@ cargo run --example gen_demo_images
 
 No external downloads, no random seeds — output is byte-identical across platforms.
 
-### Regenerating the screenshot stills and scroll GIFs (macOS)
+### Regenerating the screenshot stills (macOS)
 
-The screenshots in `examples/screenshots/` are captured by driving Terminal.app via AppleScript, recording the window with `screencapture -V`, and converting the MOV to a palette-optimized GIF with `ffmpeg`. Still PNGs are then extracted from a mid-scroll frame of each GIF so `mat` can render them inline without squashing a tall animation into a single line height. Both outputs are then compressed for the README — PNGs are scaled to 720 px wide with the alpha channel flattened, GIFs are re-quantized with a 3% fuzz threshold:
+The screenshots in `examples/screenshots/` are captured by driving Terminal.app via AppleScript, recording the window with `screencapture -V`, and converting the MOV to a palette-optimized GIF with `ffmpeg`. A still PNG is then extracted from a mid-scroll frame of each GIF so `mat` can render it inline without squashing a tall animation into a single line height. The still is quantized to a 256-color indexed PNG at full resolution — lossless in practice for terminal screenshots (limited color palette) and 6–9× smaller than an 8-bit RGBA PNG. Only the still PNGs are committed; the intermediate GIFs stay local:
 
 ```bash
-# Record a single demo as a scrolling GIF
-examples/screenshots/record.sh examples/showcase.md examples/screenshots/showcase.gif
+# Record a single demo as a scrolling GIF (local intermediate, not committed)
+examples/screenshots/record.sh examples/showcase.md /tmp/showcase.gif
 
-# Record all six, extract a representative mid-scroll PNG, then optimize both
+# Record all six, extract a representative mid-scroll PNG, then quantize
 for f in showcase typography code tables images links; do
-  examples/screenshots/record.sh "examples/$f.md" "examples/screenshots/$f.gif"
-  dur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "examples/screenshots/$f.gif")
+  examples/screenshots/record.sh "examples/$f.md" "/tmp/$f.gif"
+  dur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "/tmp/$f.gif")
   mid=$(awk "BEGIN { printf \"%.2f\", $dur * 0.40 }")
-  ffmpeg -y -v error -ss "$mid" -i "examples/screenshots/$f.gif" \
-    -frames:v 1 -vf "scale=720:-1:flags=lanczos" "examples/screenshots/$f.png"
-  # Web-optimize the still (1800w RGBA → 720w RGB, ~10x smaller)
-  magick "examples/screenshots/$f.png" -resize 720x \
-    -background '#1d1f21' -alpha remove -alpha off -strip \
-    -define png:compression-level=9 "examples/screenshots/$f.png"
-  # Web-optimize the GIF (fuzzy re-quantize + transparency optimize, ~3-4x smaller)
-  magick "examples/screenshots/$f.gif" -coalesce -fuzz 3% \
-    -layers OptimizeTransparency -layers Optimize "examples/screenshots/$f.gif"
+  ffmpeg -y -v error -ss "$mid" -i "/tmp/$f.gif" \
+    -frames:v 1 "examples/screenshots/$f.png"
+  # Quantize to 256-color indexed PNG — visually lossless on terminal
+  # screenshots, ~6–9× smaller than the RGBA source.
+  magick "examples/screenshots/$f.png" -strip -dither None -colors 256 \
+    PNG8:"examples/screenshots/$f.png"
 done
 ```
 
