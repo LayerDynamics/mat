@@ -1,0 +1,117 @@
+[package]
+name = "mat"
+version = "0.1.0"
+edition = "2024"
+description = "cat for rendered markdown — instant, single-binary terminal renderer"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/LayerDynamics/mat"
+homepage = "https://github.com/LayerDynamics/mat"
+documentation = "https://docs.rs/mat"
+readme = "README.md"
+keywords = ["cat", "markdown", "terminal", "cli", "renderer"]
+categories = ["command-line-utilities", "text-processing"]
+authors = ["LayerDynamics"]
+
+# Cargo infers both `src/lib.rs` (library) and `src/main.rs` (binary). The
+# library exposes every internal module to the integration tests under
+# `tests/*.test.rs`; the binary only wires `main()` and calls through the
+# library's public surface.
+[lib]
+name = "mat"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mat"
+path = "src/main.rs"
+
+# Each test binary is named for its concern. Cargo's default `tests/*.rs`
+# auto-discovery misses the doubled extension (`*.test.rs`), so every test
+# file is wired explicitly. `harness = true` (the default) keeps the
+# built-in libtest runner.
+[[test]]
+name = "config"
+path = "tests/config.test.rs"
+
+[[test]]
+name = "format"
+path = "tests/format.test.rs"
+
+[[test]]
+name = "image"
+path = "tests/image.test.rs"
+
+[[test]]
+name = "main"
+path = "tests/main.test.rs"
+
+[[test]]
+name = "markdown"
+path = "tests/markdown.test.rs"
+
+[[test]]
+name = "process"
+path = "tests/process.test.rs"
+
+[[test]]
+name = "renderer"
+path = "tests/renderer.test.rs"
+
+[[test]]
+name = "resolve"
+path = "tests/resolve.test.rs"
+
+[[test]]
+name = "sanitize"
+path = "tests/sanitize.test.rs"
+
+[[test]]
+name = "state"
+path = "tests/state.test.rs"
+
+[[test]]
+name = "style"
+path = "tests/style.test.rs"
+
+[[test]]
+name = "terminal"
+path = "tests/terminal.test.rs"
+
+[[test]]
+name = "utils"
+path = "tests/utils.test.rs"
+
+[features]
+default = []
+# Enable real DEC SIXEL rendering for foot/mlterm/xterm via libsixel.
+# Requires `libsixel` to be installed on the build host (e.g. `brew install libsixel`).
+sixel = ["viuer/sixel"]
+
+[dependencies]
+pulldown-cmark = { version = "0.13", default-features = false }
+viuer          = { version = "0.9", default-features = false, features = ["print-file"] }
+image          = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+# `default-fancy` transitively pulls yaml-rust 0.4.5 (RUSTSEC-2024-0320,
+# unmaintained, informational — no known CVE) via syntect's `yaml-load`,
+# which `default-syntaxes` requires to parse bundled .sublime-syntax files
+# at startup. Eliminating it would mean shipping a prebuilt binary syntax
+# dump and dropping `yaml-load`; deferred until it becomes a real risk.
+syntect        = { version = "5", default-features = false, features = ["default-fancy"] }
+owo-colors     = "4"
+terminal_size  = "0.4"
+unicode-width  = "0.2"
+ureq           = { version = "2", default-features = false, features = ["tls"] }
+tempfile       = "3"
+
+[dev-dependencies]
+tiny_http = "0.12"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+# Correct for a single-binary CLI: smaller code, no unwinding tables, faster
+# crashes. If `mat` ever gains a published library crate, revisit — abort
+# panics propagate across FFI boundaries and prevent test harnesses (and
+# downstream library consumers) from catching panics with `catch_unwind`.
+panic = "abort"

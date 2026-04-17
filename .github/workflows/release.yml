@@ -1,0 +1,112 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish (e.g. v0.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            cross: false
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+            cross: true
+          - target: x86_64-apple-darwin
+            runner: macos-latest
+            cross: false
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+            cross: false
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            cross: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross (Linux aarch64)
+        if: matrix.cross == true
+        run: cargo install cross --locked
+
+      - name: Build (cargo)
+        if: matrix.cross == false
+        shell: bash
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Build (cross)
+        if: matrix.cross == true
+        run: cross build --release --locked --target ${{ matrix.target }}
+
+      - name: Stage artifact
+        id: stage
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME:-${{ github.event.inputs.tag }}}"
+          name="mat-${tag}-${{ matrix.target }}"
+          mkdir -p "dist/${name}"
+          if [[ "${{ matrix.target }}" == *windows* ]]; then
+            cp "target/${{ matrix.target }}/release/mat.exe" "dist/${name}/"
+            (cd dist && 7z a "${name}.zip" "${name}")
+            echo "asset=dist/${name}.zip" >> "$GITHUB_OUTPUT"
+          else
+            cp "target/${{ matrix.target }}/release/mat" "dist/${name}/"
+            tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+            echo "asset=dist/${name}.tar.gz" >> "$GITHUB_OUTPUT"
+          fi
+          (cd dist && shasum -a 256 "$(basename "${{ steps.stage.outputs.asset || '' }}")" 2>/dev/null || true)
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mat-${{ matrix.target }}
+          path: ${{ steps.stage.outputs.asset }}
+
+  publish:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Compute checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          shopt -s globstar nullglob
+          for f in **/*; do
+            [[ -f "$f" ]] || continue
+            shasum -a 256 "$f" >> SHA256SUMS.txt
+          done
+      - name: Create / update GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name || github.event.inputs.tag }}
+          files: |
+            dist/**/*.tar.gz
+            dist/**/*.zip
+            dist/SHA256SUMS.txt
+          fail_on_unmatched_files: false
+          generate_release_notes: true
